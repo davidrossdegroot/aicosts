@@ -1,0 +1,30 @@
+[project]
+name = "aicosts"
+version = "0.1.0"
+description = "Track API spend across Anthropic, OpenAI, Twilio, and other paid services"
+readme = "README.md"
+authors = [
+    { name = "David De Groot", email = "davidrossdegroot@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "httpx>=0.28",
+    "click>=8.2",
+    "rich>=13.9",
+    "keyring>=25.5",
+    "tomlkit>=0.13",
+    "platformdirs>=4.3",
+]
+
+[project.scripts]
+aicosts = "aicosts.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.11.9,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.9",
+]
