@@ -95,6 +95,8 @@ def upsert_usage_event(
     api_key_id = api_key_id or ""
     workspace_id = workspace_id or ""
     model = model or ""
+    bucket_start = bucket_start[:10]
+    bucket_end = bucket_end[:10]
 
     existed = conn.execute(
         """

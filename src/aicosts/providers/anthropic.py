@@ -8,6 +8,7 @@ Strategy:
 """
 from __future__ import annotations
 
+import re
 from datetime import UTC, date, datetime, timedelta
 
 import httpx
@@ -22,6 +23,20 @@ API_VERSION = "2023-06-01"
 
 # Per-million-token prices (USD). Used only when cost_report data isn't available yet.
 # Update when Anthropic ships new models or pricing changes.
+def _model_from_description(description: str) -> str:
+    """Normalize a cost_report description to a model slug.
+
+    'Claude Opus 4.7 Usage - Input Tokens, Cache Write' → 'claude-opus-4-7'
+    'Web Search Usage' → 'web_search'
+    """
+    m = re.match(r"^(Claude \S+ \d+\.\d+)", description, re.IGNORECASE)
+    if m:
+        return m.group(1).lower().replace(" ", "-").replace(".", "-")
+    if "web search" in description.lower():
+        return "web_search"
+    return description
+
+
 PRICING: dict[str, dict[str, float]] = {
     "claude-opus-4-7": {"input": 15.0, "output": 75.0, "cache_write": 18.75, "cache_read": 1.50},
     "claude-sonnet-4-6": {"input": 3.0, "output": 15.0, "cache_write": 3.75, "cache_read": 0.30},
@@ -102,10 +117,17 @@ def pull(since: date, until: date | None = None) -> PullResult:
             for bucket in rows:
                 start = bucket["starting_at"][:10]
                 end = bucket["ending_at"][:10]
+                # Aggregate per (workspace_id, model) before upserting — the API
+                # returns one row per token type (e.g. "Claude Opus 4.7 Usage -
+                # Input Tokens, Cache Write") so we normalize and sum them.
+                aggregated: dict[tuple[str, str], float] = {}
                 for result in bucket.get("results", []):
-                    cost_usd = float(result.get("amount", 0)) / 100.0  # API returns cents
-                    workspace_id = result.get("workspace_id")
-                    description = result.get("description") or ""
+                    cost_usd = float(result.get("amount", 0)) / 100.0
+                    workspace_id = result.get("workspace_id") or ""
+                    model = _model_from_description(result.get("description") or "")
+                    key = (workspace_id, model)
+                    aggregated[key] = aggregated.get(key, 0.0) + cost_usd
+                for (workspace_id, model), cost_usd in aggregated.items():
                     ins, upd = db.upsert_usage_event(
                         conn,
                         provider=PROVIDER,
@@ -113,7 +135,7 @@ def pull(since: date, until: date | None = None) -> PullResult:
                         bucket_end=end,
                         granularity="1d",
                         workspace_id=workspace_id,
-                        model=description,
+                        model=model,
                         cost_usd=cost_usd,
                         cost_estimated=False,
                         raw_ref=f"cost_report:{start}",
