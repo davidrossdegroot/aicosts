@@ -1,5 +1,7 @@
-"""Credential storage (macOS Keychain via keyring) and projects.toml display mapping."""
+"""Credential storage (env vars or macOS Keychain) and projects.toml display mapping."""
 from __future__ import annotations
+
+import os
 
 import keyring
 import tomlkit
@@ -9,7 +11,14 @@ from aicosts.paths import projects_toml
 SERVICE = "aicosts"
 
 
+def _env_var_name(name: str) -> str:
+    return name.upper().replace("-", "_")
+
+
 def get_secret(name: str) -> str | None:
+    env_value = os.environ.get(_env_var_name(name))
+    if env_value:
+        return env_value
     return keyring.get_password(SERVICE, name)
 
 
@@ -27,8 +36,11 @@ def delete_secret(name: str) -> None:
 def require_secret(name: str, hint: str) -> str:
     value = get_secret(name)
     if not value:
+        env_name = _env_var_name(name)
         raise SystemExit(
-            f"Missing credential '{name}'. Set it with:\n"
+            f"Missing credential '{name}'. Set it via env var:\n"
+            f"    export {env_name}=<value>\n"
+            f"or store it in the keychain:\n"
             f"    aicosts keys set {name}\n"
             f"({hint})"
         )
