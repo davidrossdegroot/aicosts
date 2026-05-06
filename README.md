@@ -1,21 +1,8 @@
 # aicosts
 
-Track API spend across Anthropic, OpenAI, Twilio, and other paid services.
+Track API spend across Anthropic, OpenAI, and GCP.
 Pulls from each provider's admin/billing API into a local SQLite database; reports
 by provider, project, key, or model.
-
-Tracking issue: [dot-openclaw#13](https://github.com/davidrossdegroot/dot-openclaw/issues/13).
-
-## Status — Phase 1 (MVP)
-
-- [x] CLI scaffolding (`pull`, `report`, `status`, `paths`, `keys`)
-- [x] SQLite storage + JSONL raw archive
-- [x] macOS Keychain credential storage
-- [x] Anthropic provider (cost_report + usage_report)
-- [x] OpenAI provider (organization/costs)
-- [ ] Phase 2: Telegram budget alerts
-- [ ] Phase 3: Twilio + ngrok + static fixed-costs YAML
-- [ ] Phase 4 (optional): GCP via BigQuery billing export
 
 ## Install
 
@@ -28,35 +15,48 @@ uv tool install --editable .   # exposes `aicosts` on $PATH
 
 ## Setup
 
-Both Anthropic and OpenAI cost endpoints require **admin** API keys, which are
-distinct from your regular `sk-ant-api03-...` / `sk-...` keys.
+### Anthropic
 
-1. **Anthropic admin key** — Console → Settings → Admin Keys.
-   Stored in macOS Keychain under service `aicosts`, key `anthropic-admin-key`.
+Admin API key — Console → Settings → Admin Keys (`sk-ant-admin-...`).
 
-   ```sh
-   aicosts keys set anthropic-admin-key
-   ```
+```sh
+aicosts keys set anthropic-admin-key
+```
 
-2. **OpenAI admin key** — platform.openai.com → Settings → Organization → Admin
-   keys.
+### OpenAI
 
-   ```sh
-   aicosts keys set openai-admin-key
-   ```
+Admin API key — platform.openai.com → Settings → Organization → Admin Keys.
 
-3. **Project mapping (optional)** — `~/Library/Application Support/aicosts/projects.toml`:
+```sh
+aicosts keys set openai-admin-key
+```
 
-   ```toml
-   [[project]]
-   label = "openclaw-agent"
-   anthropic_workspace_ids = ["wrkspc_..."]
-   openai_project_ids = ["proj_..."]
+### GCP
 
-   [[project]]
-   label = "voice-calls"
-   openai_project_ids = ["proj_voice"]
-   ```
+1. Enable **billing export to BigQuery** in the GCP Console (Billing → Billing export → Standard usage cost). Use dataset name `gcp_costs` (or set `GCP_BILLING_DATASET` env var if different).
+2. Grant the service account **BigQuery Data Viewer** on that dataset.
+3. Store the service account key:
+
+```sh
+aicosts keys set gcp-service-account-key --file /path/to/sa-key.json
+```
+
+> First export can take up to 24h to appear after enabling.
+
+### Project mapping (optional)
+
+`~/Library/Application Support/aicosts/projects.toml` maps provider IDs to human labels:
+
+```toml
+[[project]]
+label = "openclaw-agent"
+anthropic_workspace_ids = ["wrkspc_..."]
+openai_project_ids = ["proj_..."]
+
+[[project]]
+label = "voice-calls"
+openai_project_ids = ["proj_voice"]
+```
 
 ## Use
 
@@ -64,7 +64,7 @@ distinct from your regular `sk-ant-api03-...` / `sk-...` keys.
 # Pull last 30 days from all providers
 aicosts pull
 
-# Pull a specific provider for a specific window
+# Pull a specific provider / window
 aicosts pull --provider anthropic --since 2026-04-01
 
 # Reports
@@ -75,8 +75,18 @@ aicosts report --period today --by model
 # Daily-briefing one-liner
 aicosts status
 # -> today: $6.70 (openai $4.20, anthropic $2.50*)
-#    (* = estimated from token counts; replaces when finalized)
+#    (* = estimated from token counts; replaces when finalized cost data lands)
 ```
+
+## Credentials
+
+Credentials are stored in the macOS Keychain by default. For CI/GitHub Actions, set env vars instead — they take precedence over the keychain:
+
+| Key name | Env var |
+|---|---|
+| `anthropic-admin-key` | `ANTHROPIC_ADMIN_KEY` |
+| `openai-admin-key` | `OPENAI_ADMIN_KEY` |
+| `gcp-service-account-key` | `GCP_SERVICE_ACCOUNT_KEY` |
 
 ## Data locations
 
@@ -85,23 +95,15 @@ aicosts paths
 ```
 
 - `~/Library/Application Support/aicosts/db.sqlite` — main DB
-- `~/Library/Application Support/aicosts/raw/{provider}/{date}.jsonl` — replay archive
+- `~/Library/Application Support/aicosts/raw/{provider}/{date}.jsonl` — raw API archive
 - `~/Library/Application Support/aicosts/projects.toml` — display mapping
 
 ## Design notes
 
-See [the plan in dot-openclaw#13](https://github.com/davidrossdegroot/dot-openclaw/issues/13)
-for context. Key decisions:
-
 - **SQLite + JSONL** — SQLite for queries, JSONL for raw API responses (replay/debug).
-- **Admin keys in Keychain, never `.env`** — admin keys can manage workspaces and
-  rotate keys; treat them as more sensitive than regular API keys.
-- **Provider-side IDs as primary key** — `workspace_id`, `project_id`, etc. survive
-  key rotation. The local `projects.toml` is a display layer only.
-- **Estimated vs finalized cost** — Anthropic's `usage_report` is real-time but
-  returns token counts; we estimate cost from a static pricing table and mark
-  rows `cost_estimated=1`. `cost_report` is authoritative but lags ~24h; when it
-  catches up, it overwrites the estimate.
+- **Provider-side IDs as primary key** — `workspace_id`, `project_id`, etc. survive key rotation. The local `projects.toml` is a display layer only.
+- **Estimated vs finalized cost** — Anthropic's `usage_report` is real-time but returns token counts; cost is estimated from a static pricing table and rows are flagged `cost_estimated=1`. `cost_report` is authoritative but lags ~48h; when it catches up it overwrites the estimate.
+- **GCP via BigQuery** — GCP pushes billing data to BigQuery automatically; `aicosts pull` queries it directly rather than polling an API.
 
 ## Develop
 
