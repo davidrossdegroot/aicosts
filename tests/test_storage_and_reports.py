@@ -8,8 +8,10 @@ from __future__ import annotations
 from datetime import date, timedelta
 
 import pytest
+from click.testing import CliRunner
 
 from aicosts import paths, reports
+from aicosts.cli import main
 from aicosts.storage import db
 
 
@@ -101,6 +103,77 @@ def test_status_line(tmp_paths):
     assert "$6.70" in line  # 2.50 + 4.20
     assert "anthropic" in line
     assert "openai" in line
+
+
+def test_projects_command_shows_unmapped(tmp_paths):
+    today = date.today()
+    _seed(today)
+    runner = CliRunner()
+    result = runner.invoke(main, ["projects"])
+    assert result.exit_code == 0
+    assert "wrkspc_openclaw" in result.output
+    assert "proj_voice" in result.output
+    assert "Unmapped" in result.output
+
+
+def test_projects_command_shows_mapped(tmp_paths):
+    today = date.today()
+    _seed(today)
+    (tmp_paths / "projects.toml").write_text(
+        '[[project]]\n'
+        'label = "openclaw-agent"\n'
+        'anthropic_workspace_ids = ["wrkspc_openclaw", "wrkspc_default"]\n'
+        '[[project]]\n'
+        'label = "voice-calls"\n'
+        'openai_project_ids = ["proj_voice"]\n'
+    )
+    runner = CliRunner()
+    result = runner.invoke(main, ["projects"])
+    assert result.exit_code == 0
+    assert "All usage IDs are mapped" in result.output
+
+
+def test_projects_add_creates_mapping(tmp_paths):
+    today = date.today()
+    _seed(today)
+    runner = CliRunner()
+
+    result = runner.invoke(main, ["projects", "add", "openclaw-agent",
+                                  "--anthropic-workspace", "wrkspc_openclaw",
+                                  "--anthropic-workspace", "wrkspc_default"])
+    assert result.exit_code == 0
+    assert "openclaw-agent" in result.output
+
+    result = runner.invoke(main, ["projects", "add", "voice-calls",
+                                  "--openai-project", "proj_voice"])
+    assert result.exit_code == 0
+
+    rows = reports.summarize("today", "project")
+    labels = [r.label for r in rows]
+    assert "openclaw-agent" in labels
+    assert "voice-calls" in labels
+
+
+def test_projects_add_merges_existing(tmp_paths):
+    runner = CliRunner()
+    runner.invoke(main, ["projects", "add", "my-agent",
+                         "--anthropic-workspace", "wrkspc_1"])
+    runner.invoke(main, ["projects", "add", "my-agent",
+                         "--anthropic-workspace", "wrkspc_2",
+                         "--openai-project", "proj_1"])
+
+    import tomlkit
+    doc = tomlkit.parse((tmp_paths / "projects.toml").read_text())
+    entry = doc["project"][0]
+    assert "wrkspc_1" in entry["anthropic_workspace_ids"]
+    assert "wrkspc_2" in entry["anthropic_workspace_ids"]
+    assert "proj_1" in entry["openai_project_ids"]
+
+
+def test_projects_add_requires_at_least_one_id(tmp_paths):
+    runner = CliRunner()
+    result = runner.invoke(main, ["projects", "add", "my-agent"])
+    assert result.exit_code != 0
 
 
 def test_upsert_replaces_estimate_with_finalized(tmp_paths):

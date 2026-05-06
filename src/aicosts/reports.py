@@ -60,7 +60,7 @@ def summarize(period: str, by: str) -> list[Row]:
             key = f"{provider}/{r['model'] or '(none)'}"
         elif by == "key":
             key = f"{provider}/{r['api_key_id'] or r['workspace_id'] or '(none)'}"
-        elif by == "project":
+        elif by in ("project", "project-model"):
             label = project_label_for(
                 projects_doc,
                 provider=provider,
@@ -68,7 +68,8 @@ def summarize(period: str, by: str) -> list[Row]:
                 project_id=r["project_id"],
                 api_key_id=r["api_key_id"],
             )
-            key = label or f"{provider}/(unmapped)"
+            project_key = label or f"{provider}/(unmapped)"
+            key = f"{project_key}/{r['model']}" if by == "project-model" else project_key
         else:
             raise ValueError(f"unknown grouping: {by}")
 

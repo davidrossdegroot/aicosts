@@ -76,8 +76,13 @@ def project_label_for(
 ) -> str | None:
     """Return the human label for a usage row, if one is configured."""
     for entry in projects_doc.get("project", []):
-        if provider == "anthropic" and workspace_id and workspace_id in entry.get("anthropic_workspace_ids", []):
-            return entry.get("label")
+        if provider == "anthropic":
+            if workspace_id and workspace_id in entry.get("anthropic_workspace_ids", []):
+                return entry.get("label")
+            if project_id and project_id in entry.get("anthropic_project_ids", []):
+                return entry.get("label")
+            if api_key_id and api_key_id in entry.get("anthropic_api_key_ids", []):
+                return entry.get("label")
         if provider == "openai":
             if project_id and project_id in entry.get("openai_project_ids", []):
                 return entry.get("label")
