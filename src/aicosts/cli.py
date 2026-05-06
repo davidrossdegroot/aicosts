@@ -50,7 +50,7 @@ def pull(providers: tuple[str, ...], since: datetime | None, until: datetime | N
 @click.option("--period", default="month",
               type=click.Choice(["today", "yesterday", "week", "month", "30d"]))
 @click.option("--by", default="provider",
-              type=click.Choice(["provider", "project", "key", "model"]))
+              type=click.Choice(["provider", "project", "project-model", "key", "model"]))
 def report(period: str, by: str) -> None:
     """Summarize spend over a window."""
     rows = reports.summarize(period, by)
@@ -85,6 +85,167 @@ def paths() -> None:
     """Show where aicosts stores data."""
     console.print(f"DB:           {db_path()}")
     console.print(f"projects.toml: {projects_toml()}")
+
+
+@main.group(invoke_without_command=True)
+@click.pass_context
+def projects(ctx: click.Context) -> None:
+    """Manage project label mappings."""
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(_projects_list)
+
+
+@projects.command("list")
+def _projects_list() -> None:
+    """Show configured projects and unmapped IDs in the database."""
+    from aicosts.config import load_projects, project_label_for
+    from aicosts.storage import db
+
+    projects_doc = load_projects()
+    configured = projects_doc.get("project", [])
+
+    if configured:
+        table = Table(title=f"Configured projects ({projects_toml()})")
+        table.add_column("Label")
+        table.add_column("anthropic_workspace_ids")
+        table.add_column("anthropic_project_ids")
+        table.add_column("anthropic_api_key_ids")
+        table.add_column("openai_project_ids")
+        table.add_column("openai_api_key_ids")
+        for p in configured:
+            table.add_row(
+                p.get("label", ""),
+                ", ".join(p.get("anthropic_workspace_ids", [])),
+                ", ".join(p.get("anthropic_project_ids", [])),
+                ", ".join(p.get("anthropic_api_key_ids", [])),
+                ", ".join(p.get("openai_project_ids", [])),
+                ", ".join(p.get("openai_api_key_ids", [])),
+            )
+        console.print(table)
+    else:
+        console.print(f"[yellow]No projects configured.[/yellow] Create: {projects_toml()}")
+
+    sql = """
+        SELECT DISTINCT provider, workspace_id, project_id, api_key_id
+        FROM usage_events
+        ORDER BY provider, workspace_id, project_id, api_key_id
+    """
+    with db.session() as conn:
+        rows = conn.execute(sql).fetchall()
+
+    if not rows:
+        console.print("[dim]No usage data in database yet.[/dim]")
+        return
+
+    unmapped = [
+        r for r in rows
+        if (r["workspace_id"] or r["project_id"] or r["api_key_id"])
+        and project_label_for(
+            projects_doc,
+            provider=r["provider"],
+            workspace_id=r["workspace_id"] or None,
+            project_id=r["project_id"] or None,
+            api_key_id=r["api_key_id"] or None,
+        ) is None
+    ]
+
+    if unmapped:
+        console.print()
+        table = Table(title="Unmapped IDs in database (use 'aicosts projects add' to map)")
+        table.add_column("Provider")
+        table.add_column("workspace_id")
+        table.add_column("project_id")
+        table.add_column("api_key_id")
+        for r in unmapped:
+            table.add_row(
+                r["provider"],
+                r["workspace_id"] or "[dim](none)[/dim]",
+                r["project_id"] or "[dim](none)[/dim]",
+                r["api_key_id"] or "[dim](none)[/dim]",
+            )
+        console.print(table)
+    else:
+        console.print("[green]All usage IDs are mapped to project labels.[/green]")
+
+
+@projects.command("add")
+@click.argument("label")
+@click.option("--anthropic-workspace", "anthropic_workspaces", multiple=True, metavar="ID",
+              help="Anthropic workspace ID (repeat for multiple).")
+@click.option("--anthropic-project", "anthropic_projects", multiple=True, metavar="ID",
+              help="Anthropic project ID (repeat for multiple).")
+@click.option("--anthropic-api-key", "anthropic_api_keys", multiple=True, metavar="ID",
+              help="Anthropic API key ID (repeat for multiple).")
+@click.option("--openai-project", "openai_projects", multiple=True, metavar="ID",
+              help="OpenAI project ID (repeat for multiple).")
+@click.option("--openai-api-key", "openai_api_keys", multiple=True, metavar="ID",
+              help="OpenAI API key ID (repeat for multiple).")
+def projects_add(
+    label: str,
+    anthropic_workspaces: tuple[str, ...],
+    anthropic_projects: tuple[str, ...],
+    anthropic_api_keys: tuple[str, ...],
+    openai_projects: tuple[str, ...],
+    openai_api_keys: tuple[str, ...],
+) -> None:
+    """Add or update a project label mapping in projects.toml.
+
+    Creates the file if it doesn't exist. If LABEL already exists, merges the
+    new IDs into the existing entry without duplicating.
+
+    \b
+    Examples:
+      aicosts projects add my-agent --anthropic-project proj_abc123
+      aicosts projects add my-agent --anthropic-api-key apikey_abc123
+      aicosts projects add my-agent --openai-project proj_def456
+    """
+    import tomlkit
+
+    if not any([anthropic_workspaces, anthropic_projects, anthropic_api_keys, openai_projects, openai_api_keys]):
+        raise click.UsageError(
+            "Provide at least one ID option (--anthropic-workspace, --anthropic-project, "
+            "--anthropic-api-key, --openai-project, or --openai-api-key)."
+        )
+
+    p = projects_toml()
+    doc = tomlkit.parse(p.read_text()) if p.exists() else tomlkit.document()
+
+    entries: list = doc.get("project", [])  # type: ignore[assignment]
+    existing = next((e for e in entries if e.get("label") == label), None)
+
+    if existing is None:
+        entry = tomlkit.table()
+        entry.add("label", label)
+        if anthropic_workspaces:
+            entry.add("anthropic_workspace_ids", list(anthropic_workspaces))
+        if anthropic_projects:
+            entry.add("anthropic_project_ids", list(anthropic_projects))
+        if anthropic_api_keys:
+            entry.add("anthropic_api_key_ids", list(anthropic_api_keys))
+        if openai_projects:
+            entry.add("openai_project_ids", list(openai_projects))
+        if openai_api_keys:
+            entry.add("openai_api_key_ids", list(openai_api_keys))
+        if "project" not in doc:
+            doc.add("project", tomlkit.aot())
+        doc["project"].append(entry)
+    else:
+        def _merge(key: str, new_ids: tuple[str, ...]) -> None:
+            if not new_ids:
+                return
+            current: list = existing.setdefault(key, [])
+            for id_ in new_ids:
+                if id_ not in current:
+                    current.append(id_)
+
+        _merge("anthropic_workspace_ids", anthropic_workspaces)
+        _merge("anthropic_project_ids", anthropic_projects)
+        _merge("anthropic_api_key_ids", anthropic_api_keys)
+        _merge("openai_project_ids", openai_projects)
+        _merge("openai_api_key_ids", openai_api_keys)
+
+    p.write_text(tomlkit.dumps(doc))
+    console.print(f"[green]✓[/green] saved [bold]{label}[/bold] → {p}")
 
 
 @main.group()
