@@ -11,7 +11,7 @@ from rich.table import Table
 from aicosts import config, reports
 from aicosts.paths import db_path, projects_toml
 
-PROVIDERS = ["anthropic", "openai"]
+PROVIDERS = ["anthropic", "openai", "gcp"]
 
 console = Console()
 
@@ -95,8 +95,11 @@ def keys() -> None:
 @keys.command("set")
 @click.argument("name")
 @click.option("--value", help="Value to store. If omitted, prompts.")
-def keys_set(name: str, value: str | None) -> None:
-    if value is None:
+@click.option("--file", "file_path", type=click.Path(exists=True), help="Read value from file (useful for JSON keys).")
+def keys_set(name: str, value: str | None, file_path: str | None) -> None:
+    if file_path:
+        value = open(file_path).read().strip()
+    elif value is None:
         value = click.prompt(f"Value for {name}", hide_input=True)
     config.set_secret(name, value)
     console.print(f"[green]✓[/green] stored {name} in keychain (service={config.SERVICE})")

@@ -100,8 +100,8 @@ def pull(since: date, until: date | None = None) -> PullResult:
                 },
             )
             for bucket in rows:
-                start = bucket["starting_at"]
-                end = bucket["ending_at"]
+                start = bucket["starting_at"][:10]
+                end = bucket["ending_at"][:10]
                 for result in bucket.get("results", []):
                     cost_usd = float(result.get("amount", 0)) / 100.0  # API returns cents
                     workspace_id = result.get("workspace_id")
@@ -131,14 +131,15 @@ def pull(since: date, until: date | None = None) -> PullResult:
                     "starting_at": edge_start.isoformat(),
                     "ending_at": (until + timedelta(days=1)).isoformat(),
                     "bucket_width": "1d",
-                    "group_by[]": ["workspace_id", "model"],
+                    "group_by[]": ["workspace_id", "api_key_id", "model"],
                 },
             )
             for bucket in rows:
-                start = bucket["starting_at"]
-                end = bucket["ending_at"]
+                start = bucket["starting_at"][:10]
+                end = bucket["ending_at"][:10]
                 for result in bucket.get("results", []):
                     workspace_id = result.get("workspace_id")
+                    api_key_id = result.get("api_key_id")
                     model = result.get("model") or ""
                     tokens = {
                         "input": result.get("uncached_input_tokens", 0),
@@ -154,6 +155,7 @@ def pull(since: date, until: date | None = None) -> PullResult:
                         bucket_end=end,
                         granularity="1d",
                         workspace_id=workspace_id,
+                        api_key_id=api_key_id,
                         model=model,
                         cost_usd=cost_usd,
                         cost_estimated=True,
