@@ -57,6 +57,7 @@ def load_projects() -> dict:
         anthropic_workspace_ids = ["wrkspc_..."]
         openai_project_ids = ["proj_..."]
         openai_api_key_ids = ["key_..."]
+        gcp_project_ids = ["my-gcp-project"]
         twilio_subaccount_sids = ["AC..."]
     """
     p = projects_toml()
@@ -87,6 +88,9 @@ def project_label_for(
             if project_id and project_id in entry.get("openai_project_ids", []):
                 return entry.get("label")
             if api_key_id and api_key_id in entry.get("openai_api_key_ids", []):
+                return entry.get("label")
+        if provider == "gcp":
+            if project_id and project_id in entry.get("gcp_project_ids", []):
                 return entry.get("label")
         if provider == "twilio" and subaccount_sid and subaccount_sid in entry.get("twilio_subaccount_sids", []):
             return entry.get("label")
