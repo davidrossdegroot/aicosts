@@ -56,6 +56,7 @@ openai_project_ids = ["proj_..."]
 [[project]]
 label = "voice-calls"
 openai_project_ids = ["proj_voice"]
+gcp_project_ids = ["saints-podcast"]
 ```
 
 ## Use

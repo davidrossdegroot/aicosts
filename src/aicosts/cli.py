@@ -112,6 +112,7 @@ def _projects_list() -> None:
         table.add_column("anthropic_api_key_ids")
         table.add_column("openai_project_ids")
         table.add_column("openai_api_key_ids")
+        table.add_column("gcp_project_ids")
         for p in configured:
             table.add_row(
                 p.get("label", ""),
@@ -120,6 +121,7 @@ def _projects_list() -> None:
                 ", ".join(p.get("anthropic_api_key_ids", [])),
                 ", ".join(p.get("openai_project_ids", [])),
                 ", ".join(p.get("openai_api_key_ids", [])),
+                ", ".join(p.get("gcp_project_ids", [])),
             )
         console.print(table)
     else:
@@ -180,6 +182,8 @@ def _projects_list() -> None:
               help="OpenAI project ID (repeat for multiple).")
 @click.option("--openai-api-key", "openai_api_keys", multiple=True, metavar="ID",
               help="OpenAI API key ID (repeat for multiple).")
+@click.option("--gcp-project", "gcp_projects", multiple=True, metavar="ID",
+              help="GCP project ID (repeat for multiple).")
 def projects_add(
     label: str,
     anthropic_workspaces: tuple[str, ...],
@@ -187,6 +191,7 @@ def projects_add(
     anthropic_api_keys: tuple[str, ...],
     openai_projects: tuple[str, ...],
     openai_api_keys: tuple[str, ...],
+    gcp_projects: tuple[str, ...],
 ) -> None:
     """Add or update a project label mapping in projects.toml.
 
@@ -198,13 +203,14 @@ def projects_add(
       aicosts projects add my-agent --anthropic-project proj_abc123
       aicosts projects add my-agent --anthropic-api-key apikey_abc123
       aicosts projects add my-agent --openai-project proj_def456
+      aicosts projects add my-agent --gcp-project my-gcp-project
     """
     import tomlkit
 
-    if not any([anthropic_workspaces, anthropic_projects, anthropic_api_keys, openai_projects, openai_api_keys]):
+    if not any([anthropic_workspaces, anthropic_projects, anthropic_api_keys, openai_projects, openai_api_keys, gcp_projects]):
         raise click.UsageError(
             "Provide at least one ID option (--anthropic-workspace, --anthropic-project, "
-            "--anthropic-api-key, --openai-project, or --openai-api-key)."
+            "--anthropic-api-key, --openai-project, --openai-api-key, or --gcp-project)."
         )
 
     p = projects_toml()
@@ -226,6 +232,8 @@ def projects_add(
             entry.add("openai_project_ids", list(openai_projects))
         if openai_api_keys:
             entry.add("openai_api_key_ids", list(openai_api_keys))
+        if gcp_projects:
+            entry.add("gcp_project_ids", list(gcp_projects))
         if "project" not in doc:
             doc.add("project", tomlkit.aot())
         doc["project"].append(entry)
@@ -243,6 +251,7 @@ def projects_add(
         _merge("anthropic_api_key_ids", anthropic_api_keys)
         _merge("openai_project_ids", openai_projects)
         _merge("openai_api_key_ids", openai_api_keys)
+        _merge("gcp_project_ids", gcp_projects)
 
     p.write_text(tomlkit.dumps(doc))
     console.print(f"[green]✓[/green] saved [bold]{label}[/bold] → {p}")

@@ -66,6 +66,18 @@ def _seed(today: date) -> None:
             cost_usd=4.20,
             cost_estimated=False,
         )
+        # GCP finalized (today)
+        db.upsert_usage_event(
+            conn,
+            provider="gcp",
+            bucket_start=today_iso,
+            bucket_end=today_iso,
+            granularity="1d",
+            project_id="gcp_voice",
+            model="Cloud Text-to-Speech API",
+            cost_usd=0.51,
+            cost_estimated=False,
+        )
 
 
 def test_summarize_by_provider_today(tmp_paths):
@@ -89,6 +101,7 @@ def test_summarize_by_project_uses_local_mapping(tmp_paths):
         '[[project]]\n'
         'label = "voice-calls"\n'
         'openai_project_ids = ["proj_voice"]\n'
+        'gcp_project_ids = ["gcp_voice"]\n'
     )
     rows = reports.summarize("today", "project")
     labels = [r.label for r in rows]
@@ -100,9 +113,10 @@ def test_status_line(tmp_paths):
     today = date.today()
     _seed(today)
     line = reports.status_line()
-    assert "$6.70" in line  # 2.50 + 4.20
+    assert "$7.21" in line  # 2.50 + 4.20 + 0.51
     assert "anthropic" in line
     assert "openai" in line
+    assert "gcp" in line
 
 
 def test_projects_command_shows_unmapped(tmp_paths):
@@ -113,6 +127,7 @@ def test_projects_command_shows_unmapped(tmp_paths):
     assert result.exit_code == 0
     assert "wrkspc_openclaw" in result.output
     assert "proj_voice" in result.output
+    assert "gcp_voice" in result.output
     assert "Unmapped" in result.output
 
 
@@ -126,6 +141,7 @@ def test_projects_command_shows_mapped(tmp_paths):
         '[[project]]\n'
         'label = "voice-calls"\n'
         'openai_project_ids = ["proj_voice"]\n'
+        'gcp_project_ids = ["gcp_voice"]\n'
     )
     runner = CliRunner()
     result = runner.invoke(main, ["projects"])
@@ -145,7 +161,8 @@ def test_projects_add_creates_mapping(tmp_paths):
     assert "openclaw-agent" in result.output
 
     result = runner.invoke(main, ["projects", "add", "voice-calls",
-                                  "--openai-project", "proj_voice"])
+                                  "--openai-project", "proj_voice",
+                                  "--gcp-project", "gcp_voice"])
     assert result.exit_code == 0
 
     rows = reports.summarize("today", "project")
@@ -160,7 +177,8 @@ def test_projects_add_merges_existing(tmp_paths):
                          "--anthropic-workspace", "wrkspc_1"])
     runner.invoke(main, ["projects", "add", "my-agent",
                          "--anthropic-workspace", "wrkspc_2",
-                         "--openai-project", "proj_1"])
+                         "--openai-project", "proj_1",
+                         "--gcp-project", "gcp_1"])
 
     import tomlkit
     doc = tomlkit.parse((tmp_paths / "projects.toml").read_text())
@@ -168,6 +186,7 @@ def test_projects_add_merges_existing(tmp_paths):
     assert "wrkspc_1" in entry["anthropic_workspace_ids"]
     assert "wrkspc_2" in entry["anthropic_workspace_ids"]
     assert "proj_1" in entry["openai_project_ids"]
+    assert "gcp_1" in entry["gcp_project_ids"]
 
 
 def test_projects_add_requires_at_least_one_id(tmp_paths):
