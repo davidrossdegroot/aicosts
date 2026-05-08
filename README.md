@@ -1,6 +1,6 @@
 # aicosts
 
-Track API spend across Anthropic, OpenAI, GCP, and Twilio.
+Track API spend across Anthropic, OpenAI, GCP, Twilio, and GitHub.
 Pulls from each provider's admin/billing API into a local SQLite database; reports
 by provider, project, key, or model.
 
@@ -43,6 +43,18 @@ aicosts keys set gcp-service-account-key --file /path/to/sa-key.json
 
 > First export can take up to 24h to appear after enabling.
 
+### GitHub
+
+1. Create a token at [github.com/settings/tokens](https://github.com/settings/tokens):
+   - **Classic PAT**: `read:org` scope
+   - **Fine-grained PAT**: "Organization billing" → Read permission
+2. Note your GitHub organization name.
+
+```sh
+aicosts keys set github-token   # ghp_... or github_pat_...
+aicosts keys set github-org     # your-org-name
+```
+
 ### Twilio
 
 1. Find your **Account SID** (`ACxxxxx`) at the top of [console.twilio.com](https://console.twilio.com).
@@ -71,6 +83,10 @@ label = "voice-calls"
 openai_project_ids = ["proj_voice"]
 gcp_project_ids = ["saints-podcast"]
 twilio_subaccount_sids = ["ACxxxxx"]
+
+[[project]]
+label = "eng-platform"
+github_orgs = ["my-company"]
 ```
 
 ## Use
@@ -105,6 +121,8 @@ Credentials are stored in the macOS Keychain by default. For CI/GitHub Actions, 
 | `twilio-account-sid` | `TWILIO_ACCOUNT_SID` |
 | `twilio-api-key` | `TWILIO_API_KEY` |
 | `twilio-api-secret` | `TWILIO_API_SECRET` |
+| `github-token` | `GITHUB_TOKEN` |
+| `github-org` | `GITHUB_ORG` |
 
 ## Data locations
 

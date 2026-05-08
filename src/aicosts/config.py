@@ -96,4 +96,7 @@ def project_label_for(
             sid = subaccount_sid or workspace_id
             if sid and sid in entry.get("twilio_subaccount_sids", []):
                 return entry.get("label")
+        if provider == "github":
+            if workspace_id and workspace_id in entry.get("github_orgs", []):
+                return entry.get("label")
     return None
