@@ -92,6 +92,8 @@ def project_label_for(
         if provider == "gcp":
             if project_id and project_id in entry.get("gcp_project_ids", []):
                 return entry.get("label")
-        if provider == "twilio" and subaccount_sid and subaccount_sid in entry.get("twilio_subaccount_sids", []):
-            return entry.get("label")
+        if provider == "twilio":
+            sid = subaccount_sid or workspace_id
+            if sid and sid in entry.get("twilio_subaccount_sids", []):
+                return entry.get("label")
     return None

@@ -1,6 +1,6 @@
 # aicosts
 
-Track API spend across Anthropic, OpenAI, and GCP.
+Track API spend across Anthropic, OpenAI, GCP, and Twilio.
 Pulls from each provider's admin/billing API into a local SQLite database; reports
 by provider, project, key, or model.
 
@@ -43,6 +43,19 @@ aicosts keys set gcp-service-account-key --file /path/to/sa-key.json
 
 > First export can take up to 24h to appear after enabling.
 
+### Twilio
+
+1. Find your **Account SID** (`ACxxxxx`) at the top of [console.twilio.com](https://console.twilio.com).
+2. Create an **API Key** (Console → Account → Keys & Credentials → API Keys) — note the Key SID (`SKxxxxx`) and Secret.
+
+```sh
+aicosts keys set twilio-account-sid   # ACxxxxx  — used in the API path
+aicosts keys set twilio-api-key       # SKxxxxx  — used for Basic Auth
+aicosts keys set twilio-api-secret    # secret shown once at key creation
+```
+
+> The Account SID and API Key SID are different. The URL path uses the Account SID (`AC...`); the API key pair (`SK...` + secret) is the auth credential.
+
 ### Project mapping (optional)
 
 `~/Library/Application Support/aicosts/projects.toml` maps provider IDs to human labels:
@@ -57,6 +70,7 @@ openai_project_ids = ["proj_..."]
 label = "voice-calls"
 openai_project_ids = ["proj_voice"]
 gcp_project_ids = ["saints-podcast"]
+twilio_subaccount_sids = ["ACxxxxx"]
 ```
 
 ## Use
@@ -88,6 +102,9 @@ Credentials are stored in the macOS Keychain by default. For CI/GitHub Actions, 
 | `anthropic-admin-key` | `ANTHROPIC_ADMIN_KEY` |
 | `openai-admin-key` | `OPENAI_ADMIN_KEY` |
 | `gcp-service-account-key` | `GCP_SERVICE_ACCOUNT_KEY` |
+| `twilio-account-sid` | `TWILIO_ACCOUNT_SID` |
+| `twilio-api-key` | `TWILIO_API_KEY` |
+| `twilio-api-secret` | `TWILIO_API_SECRET` |
 
 ## Data locations
 
