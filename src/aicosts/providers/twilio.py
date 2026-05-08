@@ -51,7 +51,14 @@ def _fetch_paginated(client: httpx.Client, path: str, params: dict) -> list[dict
             resp = client.get(url)
         resp.raise_for_status()
         body = resp.json()
-        raw.append(PROVIDER, {"path": url, "response": body})
+        raw.append(
+            PROVIDER,
+            {
+                "path": url,
+                "request_url": str(resp.request.url),
+                "response": body,
+            },
+        )
         rows.extend(body.get("usage_records", []))
         next_uri = body.get("next_page_uri")
         if next_uri:
