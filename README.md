@@ -45,9 +45,7 @@ aicosts keys set gcp-service-account-key --file /path/to/sa-key.json
 
 ### GitHub
 
-1. Create a token at [github.com/settings/tokens](https://github.com/settings/tokens):
-   - **Classic PAT**: `read:org` scope
-   - **Fine-grained PAT**: "Organization billing" → Read permission
+1. Create a **fine-grained PAT** at [github.com/settings/tokens](https://github.com/settings/tokens?type=beta) with **Plan → Read** permission.
 2. Note your GitHub organization name.
 
 ```sh

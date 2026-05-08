@@ -23,8 +23,8 @@ API_VERSION = "2026-03-10"
 def _client() -> tuple[httpx.Client, str]:
     token = require_secret(
         "github-token",
-        "GitHub classic PAT (ghp_...). Fine-grained tokens are not supported by the billing API. "
-        "Create at https://github.com/settings/tokens",
+        "GitHub fine-grained PAT with 'Plan' (read) permission. "
+        "Create at https://github.com/settings/tokens?type=beta",
     )
     account = require_secret(
         "github-org",
