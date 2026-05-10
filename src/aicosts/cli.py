@@ -11,7 +11,7 @@ from rich.table import Table
 from aicosts import config, reports
 from aicosts.paths import db_path, projects_toml
 
-PROVIDERS = ["anthropic", "openai", "gcp", "twilio"]
+PROVIDERS = ["anthropic", "openai", "gcp", "twilio", "github"]
 
 console = Console()
 
@@ -114,6 +114,7 @@ def _projects_list() -> None:
         table.add_column("openai_api_key_ids")
         table.add_column("gcp_project_ids")
         table.add_column("twilio_subaccount_sids")
+        table.add_column("github_orgs")
         for p in configured:
             table.add_row(
                 p.get("label", ""),
@@ -124,6 +125,7 @@ def _projects_list() -> None:
                 ", ".join(p.get("openai_api_key_ids", [])),
                 ", ".join(p.get("gcp_project_ids", [])),
                 ", ".join(p.get("twilio_subaccount_sids", [])),
+                ", ".join(p.get("github_orgs", [])),
             )
         console.print(table)
     else:
@@ -188,6 +190,8 @@ def _projects_list() -> None:
               help="GCP project ID (repeat for multiple).")
 @click.option("--twilio-subaccount", "twilio_subaccounts", multiple=True, metavar="SID",
               help="Twilio Account/Subaccount SID (repeat for multiple).")
+@click.option("--github-org", "github_orgs", multiple=True, metavar="ORG",
+              help="GitHub organization name (repeat for multiple).")
 def projects_add(
     label: str,
     anthropic_workspaces: tuple[str, ...],
@@ -197,6 +201,7 @@ def projects_add(
     openai_api_keys: tuple[str, ...],
     gcp_projects: tuple[str, ...],
     twilio_subaccounts: tuple[str, ...],
+    github_orgs: tuple[str, ...],
 ) -> None:
     """Add or update a project label mapping in projects.toml.
 
@@ -210,13 +215,15 @@ def projects_add(
       aicosts projects add my-agent --openai-project proj_def456
       aicosts projects add my-agent --gcp-project my-gcp-project
       aicosts projects add my-agent --twilio-subaccount ACxxxxx
+      aicosts projects add my-agent --github-org my-company
     """
     import tomlkit
 
-    if not any([anthropic_workspaces, anthropic_projects, anthropic_api_keys, openai_projects, openai_api_keys, gcp_projects, twilio_subaccounts]):
+    if not any([anthropic_workspaces, anthropic_projects, anthropic_api_keys, openai_projects, openai_api_keys, gcp_projects, twilio_subaccounts, github_orgs]):
         raise click.UsageError(
             "Provide at least one ID option (--anthropic-workspace, --anthropic-project, "
-            "--anthropic-api-key, --openai-project, --openai-api-key, --gcp-project, or --twilio-subaccount)."
+            "--anthropic-api-key, --openai-project, --openai-api-key, --gcp-project, "
+            "--twilio-subaccount, or --github-org)."
         )
 
     p = projects_toml()
@@ -242,6 +249,8 @@ def projects_add(
             entry.add("gcp_project_ids", list(gcp_projects))
         if twilio_subaccounts:
             entry.add("twilio_subaccount_sids", list(twilio_subaccounts))
+        if github_orgs:
+            entry.add("github_orgs", list(github_orgs))
         if "project" not in doc:
             doc.add("project", tomlkit.aot())
         doc["project"].append(entry)
@@ -261,6 +270,7 @@ def projects_add(
         _merge("openai_api_key_ids", openai_api_keys)
         _merge("gcp_project_ids", gcp_projects)
         _merge("twilio_subaccount_sids", twilio_subaccounts)
+        _merge("github_orgs", github_orgs)
 
     p.write_text(tomlkit.dumps(doc))
     console.print(f"[green]✓[/green] saved [bold]{label}[/bold] → {p}")
