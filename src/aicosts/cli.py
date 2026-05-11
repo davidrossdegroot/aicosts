@@ -145,8 +145,7 @@ def _projects_list() -> None:
 
     unmapped = [
         r for r in rows
-        if (r["workspace_id"] or r["project_id"] or r["api_key_id"])
-        and project_label_for(
+        if project_label_for(
             projects_doc,
             provider=r["provider"],
             workspace_id=r["workspace_id"] or None,
@@ -235,6 +234,14 @@ def projects_add(
 
     entries: list = doc.get("project", [])  # type: ignore[assignment]
     existing = next((e for e in entries if e.get("label") == label), None)
+
+    if anthropic_catch_all and existing is None:
+        conflict = next((e for e in entries if e.get("anthropic_catch_all") and e.get("label") != label), None)
+        if conflict:
+            raise click.UsageError(
+                f"A catch-all already exists for label '{conflict.get('label')}'. "
+                "Only one catch-all is allowed."
+            )
 
     if existing is None:
         entry = tomlkit.table()
