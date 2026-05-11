@@ -192,6 +192,8 @@ def _projects_list() -> None:
               help="Twilio Account/Subaccount SID (repeat for multiple).")
 @click.option("--github-org", "github_orgs", multiple=True, metavar="ORG",
               help="GitHub organization name (repeat for multiple).")
+@click.option("--anthropic-catch-all", "anthropic_catch_all", is_flag=True, default=False,
+              help="Match any Anthropic usage with no workspace/project/key ID (e.g. the Default workspace).")
 def projects_add(
     label: str,
     anthropic_workspaces: tuple[str, ...],
@@ -202,6 +204,7 @@ def projects_add(
     gcp_projects: tuple[str, ...],
     twilio_subaccounts: tuple[str, ...],
     github_orgs: tuple[str, ...],
+    anthropic_catch_all: bool,
 ) -> None:
     """Add or update a project label mapping in projects.toml.
 
@@ -216,14 +219,15 @@ def projects_add(
       aicosts projects add my-agent --gcp-project my-gcp-project
       aicosts projects add my-agent --twilio-subaccount ACxxxxx
       aicosts projects add my-agent --github-org my-company
+      aicosts projects add default-workspace --anthropic-catch-all
     """
     import tomlkit
 
-    if not any([anthropic_workspaces, anthropic_projects, anthropic_api_keys, openai_projects, openai_api_keys, gcp_projects, twilio_subaccounts, github_orgs]):
+    if not any([anthropic_workspaces, anthropic_projects, anthropic_api_keys, openai_projects, openai_api_keys, gcp_projects, twilio_subaccounts, github_orgs, anthropic_catch_all]):
         raise click.UsageError(
             "Provide at least one ID option (--anthropic-workspace, --anthropic-project, "
             "--anthropic-api-key, --openai-project, --openai-api-key, --gcp-project, "
-            "--twilio-subaccount, or --github-org)."
+            "--twilio-subaccount, --github-org, or --anthropic-catch-all)."
         )
 
     p = projects_toml()
@@ -251,6 +255,8 @@ def projects_add(
             entry.add("twilio_subaccount_sids", list(twilio_subaccounts))
         if github_orgs:
             entry.add("github_orgs", list(github_orgs))
+        if anthropic_catch_all:
+            entry.add("anthropic_catch_all", True)
         if "project" not in doc:
             doc.add("project", tomlkit.aot())
         doc["project"].append(entry)
@@ -271,6 +277,8 @@ def projects_add(
         _merge("gcp_project_ids", gcp_projects)
         _merge("twilio_subaccount_sids", twilio_subaccounts)
         _merge("github_orgs", github_orgs)
+        if anthropic_catch_all:
+            existing["anthropic_catch_all"] = True
 
     p.write_text(tomlkit.dumps(doc))
     console.print(f"[green]✓[/green] saved [bold]{label}[/bold] → {p}")

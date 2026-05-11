@@ -76,6 +76,7 @@ def project_label_for(
     subaccount_sid: str | None = None,
 ) -> str | None:
     """Return the human label for a usage row, if one is configured."""
+    catch_all: str | None = None
     for entry in projects_doc.get("project", []):
         if provider == "anthropic":
             if workspace_id and workspace_id in entry.get("anthropic_workspace_ids", []):
@@ -84,6 +85,8 @@ def project_label_for(
                 return entry.get("label")
             if api_key_id and api_key_id in entry.get("anthropic_api_key_ids", []):
                 return entry.get("label")
+            if entry.get("anthropic_catch_all") and catch_all is None:
+                catch_all = entry.get("label")
         if provider == "openai":
             if project_id and project_id in entry.get("openai_project_ids", []):
                 return entry.get("label")
@@ -99,4 +102,7 @@ def project_label_for(
         if provider == "github":
             if workspace_id and workspace_id in entry.get("github_orgs", []):
                 return entry.get("label")
+    # Fall back to catch-all only when the row has no identifying IDs
+    if catch_all and not any([workspace_id, project_id, api_key_id]):
+        return catch_all
     return None
