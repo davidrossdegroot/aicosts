@@ -13,7 +13,7 @@ from aicosts import config, reports
 from aicosts.paths import db_path, projects_toml
 from aicosts.storage import db
 
-PROVIDERS = ["anthropic", "openai", "gcp", "twilio", "github"]
+PROVIDERS = ["anthropic", "openai", "gcp", "twilio", "github", "claude", "codex"]
 
 console = Console()
 
