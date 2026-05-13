@@ -5,10 +5,8 @@ with fakes and the happy path with monkeypatched I/O.
 """
 from __future__ import annotations
 
-import io
 import json
-from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from datetime import UTC, datetime
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -32,10 +30,14 @@ def tmp_paths(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 class TestClaudeProvider:
-    def test_missing_credentials_file_raises(self, tmp_paths, monkeypatch):
+    def test_missing_token_sources_raise(self, tmp_paths, monkeypatch):
         import aicosts.providers.claude as claude_mod
         monkeypatch.setattr(claude_mod, "CREDS_PATH", tmp_paths / "no_creds.json")
-        with pytest.raises(SystemExit, match="not found"):
+        monkeypatch.setattr(claude_mod, "_token_from_keychain", lambda: None)
+        monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+        monkeypatch.delenv("AICOSTS_CLAUDE_OAUTH_TOKEN", raising=False)
+        monkeypatch.delenv("AICOSTS_CLAUDE_CREDENTIALS_PATH", raising=False)
+        with pytest.raises(SystemExit, match="Claude OAuth token not found"):
             claude_mod.pull()
 
     def test_missing_access_token_raises(self, tmp_paths, monkeypatch):
@@ -43,8 +45,20 @@ class TestClaudeProvider:
         creds = tmp_paths / ".credentials.json"
         creds.write_text(json.dumps({"something_else": "value"}))
         monkeypatch.setattr(claude_mod, "CREDS_PATH", creds)
-        with pytest.raises(SystemExit, match="accessToken"):
+        monkeypatch.setattr(claude_mod, "_token_from_keychain", lambda: None)
+        with pytest.raises(SystemExit, match="Claude OAuth token not found"):
             claude_mod.pull()
+
+    def test_token_from_env_wins(self, tmp_paths, monkeypatch):
+        import aicosts.providers.claude as claude_mod
+        monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "tok_env")
+        assert claude_mod._token() == "tok_env"
+
+    def test_token_from_keychain_fallback(self, tmp_paths, monkeypatch):
+        import aicosts.providers.claude as claude_mod
+        monkeypatch.setattr(claude_mod, "CREDS_PATH", tmp_paths / "no_creds.json")
+        monkeypatch.setattr(claude_mod, "_token_from_keychain", lambda: "tok_keychain")
+        assert claude_mod._token() == "tok_keychain"
 
     def test_happy_path_stores_snapshots(self, tmp_paths, monkeypatch):
         import aicosts.providers.claude as claude_mod
@@ -52,6 +66,7 @@ class TestClaudeProvider:
         creds = tmp_paths / ".credentials.json"
         creds.write_text(json.dumps({"accessToken": "tok_test"}))
         monkeypatch.setattr(claude_mod, "CREDS_PATH", creds)
+        monkeypatch.setattr(claude_mod, "_token_from_keychain", lambda: None)
 
         fake_response = {
             "five_hour": {"utilization": 42, "resets_at": "2026-05-13T17:00:00+00:00"},

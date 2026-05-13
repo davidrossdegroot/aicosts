@@ -36,6 +36,8 @@ def pull(providers: tuple[str, ...], since: datetime | None, until: datetime | N
     since_d = since.date() if since else date.today() - timedelta(days=30)
     until_d = until.date() if until else date.today()
 
+    failures: list[str] = []
+
     for name in selected:
         mod = import_module(f"aicosts.providers.{name}")
         try:
@@ -50,7 +52,11 @@ def pull(providers: tuple[str, ...], since: datetime | None, until: datetime | N
                 except Exception as e:
                     console.print(f"[yellow]{name} windows[/yellow]: {e}")
         except SystemExit as e:
+            failures.append(name)
             console.print(f"[yellow]{name}[/yellow]: {e}")
+
+    if failures:
+        raise SystemExit(1)
 
 
 @main.command()
