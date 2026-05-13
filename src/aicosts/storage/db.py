@@ -5,6 +5,22 @@ from pathlib import Path
 from aicosts.paths import db_path
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS window_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    provider TEXT NOT NULL,
+    window TEXT NOT NULL,
+    unit TEXT NOT NULL,
+    pulled_at TEXT NOT NULL,
+    window_start_at TEXT NOT NULL,
+    reset_at TEXT,
+    used REAL NOT NULL,
+    lim REAL,
+    remaining REAL,
+    percent_used REAL,
+    error TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_window_snapshots ON window_snapshots(provider, window, pulled_at);
+
 CREATE TABLE IF NOT EXISTS usage_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     provider TEXT NOT NULL,
@@ -139,6 +155,49 @@ def upsert_usage_event(
         ),
     )
     return (0, 1) if existed else (1, 0)
+
+
+def insert_window_snapshot(
+    conn: sqlite3.Connection,
+    *,
+    provider: str,
+    window: str,
+    unit: str,
+    pulled_at: str,
+    window_start_at: str,
+    reset_at: str | None,
+    used: float,
+    limit: float | None,
+    remaining: float | None,
+    percent_used: float | None,
+    error: str | None = None,
+) -> None:
+    conn.execute(
+        """
+        INSERT INTO window_snapshots
+            (provider, window, unit, pulled_at, window_start_at, reset_at,
+             used, lim, remaining, percent_used, error)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (provider, window, unit, pulled_at, window_start_at, reset_at,
+         used, limit, remaining, percent_used, error),
+    )
+
+
+def latest_window_snapshots(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    """Return the most recent snapshot for each (provider, window) pair."""
+    return conn.execute(
+        """
+        SELECT ws.*
+        FROM window_snapshots ws
+        WHERE ws.pulled_at = (
+            SELECT MAX(ws2.pulled_at)
+            FROM window_snapshots ws2
+            WHERE ws2.provider = ws.provider AND ws2.window = ws.window
+        )
+        ORDER BY ws.provider, ws.window
+        """
+    ).fetchall()
 
 
 def log_pull(

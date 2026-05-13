@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 from datetime import date, datetime, timedelta
 from importlib import import_module
@@ -10,6 +11,7 @@ from rich.table import Table
 
 from aicosts import config, reports
 from aicosts.paths import db_path, projects_toml
+from aicosts.storage import db
 
 PROVIDERS = ["anthropic", "openai", "gcp", "twilio", "github"]
 
@@ -42,6 +44,11 @@ def pull(providers: tuple[str, ...], since: datetime | None, until: datetime | N
                 f"[green]{name}[/green]: {result.rows_inserted} new, {result.rows_updated} updated"
                 f" ({since_d}..{until_d})"
             )
+            if hasattr(mod, "pull_windows"):
+                try:
+                    mod.pull_windows()
+                except Exception as e:
+                    console.print(f"[yellow]{name} windows[/yellow]: {e}")
         except SystemExit as e:
             console.print(f"[yellow]{name}[/yellow]: {e}")
 
@@ -78,6 +85,35 @@ def report(period: str, by: str) -> None:
 def status() -> None:
     """One-line summary of today's spend (use in daily briefings)."""
     click.echo(reports.status_line())
+
+
+@main.command()
+def usage() -> None:
+    """Print the most recently pulled usage-window data as JSON."""
+    with db.session() as conn:
+        rows = db.latest_window_snapshots(conn)
+
+    if not rows:
+        click.echo("No window data. Run 'aicosts pull' first.", err=True)
+        raise SystemExit(1)
+
+    tools: dict = {}
+    for row in rows:
+        window_data: dict = {
+            "used": row["used"],
+            "limit": row["lim"],
+            "remaining": row["remaining"],
+            "percentUsed": row["percent_used"],
+            "unit": row["unit"],
+            "resetAt": row["reset_at"],
+            "windowStartAt": row["window_start_at"],
+            "pulledAt": row["pulled_at"],
+        }
+        if row["error"]:
+            window_data["error"] = row["error"]
+        tools.setdefault(row["provider"], {"windows": {}})["windows"][row["window"]] = window_data
+
+    click.echo(json.dumps({"tools": tools}, indent=2))
 
 
 @main.command()
