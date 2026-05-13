@@ -32,25 +32,46 @@ def tmp_paths(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 class TestClaudeProvider:
-    def test_missing_credentials_file_raises(self, tmp_paths, monkeypatch):
+    def test_env_var_takes_priority(self, tmp_paths, monkeypatch):
         import aicosts.providers.claude as claude_mod
+        monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "tok_from_env")
+        # Even with no creds file, env var should be found
         monkeypatch.setattr(claude_mod, "CREDS_PATH", tmp_paths / "no_creds.json")
-        with pytest.raises(SystemExit, match="not found"):
-            claude_mod.pull()
+        assert claude_mod._token() == "tok_from_env"
 
-    def test_missing_access_token_raises(self, tmp_paths, monkeypatch):
+    def test_v2_credentials_file(self, tmp_paths, monkeypatch):
+        """2.x format: token nested under claudeAiOauth."""
         import aicosts.providers.claude as claude_mod
+        monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
         creds = tmp_paths / ".credentials.json"
-        creds.write_text(json.dumps({"something_else": "value"}))
+        creds.write_text(json.dumps({"claudeAiOauth": {"accessToken": "tok_v2"}}))
         monkeypatch.setattr(claude_mod, "CREDS_PATH", creds)
-        with pytest.raises(SystemExit, match="accessToken"):
+        assert claude_mod._token() == "tok_v2"
+
+    def test_legacy_credentials_file(self, tmp_paths, monkeypatch):
+        """Pre-2.x format: token at top level."""
+        import aicosts.providers.claude as claude_mod
+        monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+        creds = tmp_paths / ".credentials.json"
+        creds.write_text(json.dumps({"accessToken": "tok_legacy"}))
+        monkeypatch.setattr(claude_mod, "CREDS_PATH", creds)
+        assert claude_mod._token() == "tok_legacy"
+
+    def test_no_token_raises(self, tmp_paths, monkeypatch):
+        import aicosts.providers.claude as claude_mod
+        monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+        monkeypatch.setattr(claude_mod, "CREDS_PATH", tmp_paths / "no_creds.json")
+        monkeypatch.setattr(claude_mod.sys, "platform", "linux")  # skip keychain
+        with pytest.raises(SystemExit, match="claude login"):
             claude_mod.pull()
 
     def test_happy_path_stores_snapshots(self, tmp_paths, monkeypatch):
         import aicosts.providers.claude as claude_mod
 
+        monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
         creds = tmp_paths / ".credentials.json"
-        creds.write_text(json.dumps({"accessToken": "tok_test"}))
+        # Use the 2.x credential format
+        creds.write_text(json.dumps({"claudeAiOauth": {"accessToken": "tok_test"}}))
         monkeypatch.setattr(claude_mod, "CREDS_PATH", creds)
 
         fake_response = {
