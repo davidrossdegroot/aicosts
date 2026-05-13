@@ -5,6 +5,7 @@ directory through monkeypatching aicosts.paths.
 """
 from __future__ import annotations
 
+import json
 from datetime import date, timedelta
 
 import pytest
@@ -193,6 +194,155 @@ def test_projects_add_requires_at_least_one_id(tmp_paths):
     runner = CliRunner()
     result = runner.invoke(main, ["projects", "add", "my-agent"])
     assert result.exit_code != 0
+
+
+def test_usage_command_no_data(tmp_paths):
+    runner = CliRunner()
+    result = runner.invoke(main, ["usage"])
+    assert result.exit_code != 0
+    assert "aicosts pull" in result.output
+
+
+def test_usage_command_returns_json(tmp_paths):
+    today = date.today()
+    _seed(today)
+
+    # Manually insert window snapshots for both providers
+    with db.session() as conn:
+        db.insert_window_snapshot(
+            conn,
+            provider="anthropic",
+            window="today",
+            unit="usd",
+            pulled_at="2026-01-01T00:00:00+00:00",
+            window_start_at="2026-01-01T00:00:00+00:00",
+            reset_at="2026-01-02T00:00:00+00:00",
+            used=2.50,
+            limit=None,
+            remaining=None,
+            percent_used=None,
+        )
+        db.insert_window_snapshot(
+            conn,
+            provider="anthropic",
+            window="weekly",
+            unit="usd",
+            pulled_at="2026-01-01T00:00:00+00:00",
+            window_start_at="2025-12-29T00:00:00+00:00",
+            reset_at="2026-01-05T00:00:00+00:00",
+            used=14.84,
+            limit=None,
+            remaining=None,
+            percent_used=None,
+        )
+        db.insert_window_snapshot(
+            conn,
+            provider="openai",
+            window="today",
+            unit="usd",
+            pulled_at="2026-01-01T00:00:00+00:00",
+            window_start_at="2026-01-01T00:00:00+00:00",
+            reset_at="2026-01-02T00:00:00+00:00",
+            used=4.20,
+            limit=None,
+            remaining=None,
+            percent_used=None,
+        )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["usage", "--json"])
+    assert result.exit_code == 0
+
+    data = json.loads(result.output)
+    assert "tools" in data
+    assert "anthropic" in data["tools"]
+    assert "openai" in data["tools"]
+
+    ant = data["tools"]["anthropic"]["windows"]
+    assert ant["today"]["used"] == pytest.approx(2.50)
+    assert ant["today"]["unit"] == "usd"
+    assert ant["today"]["limit"] is None
+    assert ant["weekly"]["used"] == pytest.approx(14.84)
+
+    oai = data["tools"]["openai"]["windows"]
+    assert oai["today"]["used"] == pytest.approx(4.20)
+
+
+def test_usage_command_visual_display(tmp_paths):
+    with db.session() as conn:
+        db.insert_window_snapshot(
+            conn,
+            provider="anthropic",
+            window="today",
+            unit="usd",
+            pulled_at="2026-01-01T00:00:00+00:00",
+            window_start_at="2026-01-01T00:00:00+00:00",
+            reset_at="2026-01-02T00:00:00+00:00",
+            used=2.50,
+            limit=None,
+            remaining=None,
+            percent_used=None,
+        )
+        db.insert_window_snapshot(
+            conn,
+            provider="anthropic",
+            window="weekly",
+            unit="usd",
+            pulled_at="2026-01-01T00:00:00+00:00",
+            window_start_at="2025-12-29T00:00:00+00:00",
+            reset_at="2026-01-05T00:00:00+00:00",
+            used=14.84,
+            limit=10.0,
+            remaining=None,
+            percent_used=18.0,
+        )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["usage"])
+    assert result.exit_code == 0
+    assert "anthropic" in result.output
+    assert "today" in result.output
+    assert "$2.50" in result.output       # no limit → show amount
+    assert "18% used" in result.output    # limit known → show percent
+    assert "weekly" in result.output
+
+
+def test_latest_window_snapshots_returns_most_recent(tmp_paths):
+    with db.session() as conn:
+        # Insert older snapshot
+        db.insert_window_snapshot(
+            conn,
+            provider="anthropic",
+            window="today",
+            unit="usd",
+            pulled_at="2026-01-01T00:00:00+00:00",
+            window_start_at="2026-01-01T00:00:00+00:00",
+            reset_at="2026-01-02T00:00:00+00:00",
+            used=1.00,
+            limit=None,
+            remaining=None,
+            percent_used=None,
+        )
+        # Insert newer snapshot for the same window
+        db.insert_window_snapshot(
+            conn,
+            provider="anthropic",
+            window="today",
+            unit="usd",
+            pulled_at="2026-01-01T12:00:00+00:00",
+            window_start_at="2026-01-01T00:00:00+00:00",
+            reset_at="2026-01-02T00:00:00+00:00",
+            used=5.00,
+            limit=None,
+            remaining=None,
+            percent_used=None,
+        )
+
+    with db.session() as conn:
+        rows = db.latest_window_snapshots(conn)
+
+    assert len(rows) == 1
+    assert rows[0]["used"] == pytest.approx(5.00)
 
 
 def test_upsert_replaces_estimate_with_finalized(tmp_paths):

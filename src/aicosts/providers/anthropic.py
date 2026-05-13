@@ -9,7 +9,7 @@ Strategy:
 from __future__ import annotations
 
 import re
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 import httpx
 
@@ -207,3 +207,51 @@ def pull(since: date, until: date | None = None) -> PullResult:
         since=since,
         until=until,
     )
+
+
+def pull_windows() -> None:
+    """Compute today/weekly cost windows from usage_events and store snapshots."""
+    now = datetime.now(UTC)
+    today = now.date()
+    week_start = today - timedelta(days=today.weekday())  # most recent Monday
+    next_monday = week_start + timedelta(days=7)
+    pulled_at = now.isoformat()
+
+    with db.session() as conn:
+        row = conn.execute(
+            "SELECT COALESCE(SUM(cost_usd), 0.0) AS total FROM usage_events"
+            " WHERE provider = ? AND bucket_start = ?",
+            (PROVIDER, today.isoformat()),
+        ).fetchone()
+        db.insert_window_snapshot(
+            conn,
+            provider=PROVIDER,
+            window="today",
+            unit="usd",
+            pulled_at=pulled_at,
+            window_start_at=datetime.combine(today, time.min, tzinfo=UTC).isoformat(),
+            reset_at=datetime.combine(today + timedelta(days=1), time.min, tzinfo=UTC).isoformat(),
+            used=float(row["total"]),
+            limit=None,
+            remaining=None,
+            percent_used=None,
+        )
+
+        row = conn.execute(
+            "SELECT COALESCE(SUM(cost_usd), 0.0) AS total FROM usage_events"
+            " WHERE provider = ? AND bucket_start >= ? AND bucket_start <= ?",
+            (PROVIDER, week_start.isoformat(), today.isoformat()),
+        ).fetchone()
+        db.insert_window_snapshot(
+            conn,
+            provider=PROVIDER,
+            window="weekly",
+            unit="usd",
+            pulled_at=pulled_at,
+            window_start_at=datetime.combine(week_start, time.min, tzinfo=UTC).isoformat(),
+            reset_at=datetime.combine(next_monday, time.min, tzinfo=UTC).isoformat(),
+            used=float(row["total"]),
+            limit=None,
+            remaining=None,
+            percent_used=None,
+        )
