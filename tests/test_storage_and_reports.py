@@ -250,7 +250,7 @@ def test_usage_command_returns_json(tmp_paths):
         )
 
     runner = CliRunner()
-    result = runner.invoke(main, ["usage"])
+    result = runner.invoke(main, ["usage", "--json"])
     assert result.exit_code == 0
 
     data = json.loads(result.output)
@@ -266,6 +266,45 @@ def test_usage_command_returns_json(tmp_paths):
 
     oai = data["tools"]["openai"]["windows"]
     assert oai["today"]["used"] == pytest.approx(4.20)
+
+
+def test_usage_command_visual_display(tmp_paths):
+    with db.session() as conn:
+        db.insert_window_snapshot(
+            conn,
+            provider="anthropic",
+            window="today",
+            unit="usd",
+            pulled_at="2026-01-01T00:00:00+00:00",
+            window_start_at="2026-01-01T00:00:00+00:00",
+            reset_at="2026-01-02T00:00:00+00:00",
+            used=2.50,
+            limit=None,
+            remaining=None,
+            percent_used=None,
+        )
+        db.insert_window_snapshot(
+            conn,
+            provider="anthropic",
+            window="weekly",
+            unit="usd",
+            pulled_at="2026-01-01T00:00:00+00:00",
+            window_start_at="2025-12-29T00:00:00+00:00",
+            reset_at="2026-01-05T00:00:00+00:00",
+            used=14.84,
+            limit=10.0,
+            remaining=None,
+            percent_used=18.0,
+        )
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["usage"])
+    assert result.exit_code == 0
+    assert "anthropic" in result.output
+    assert "today" in result.output
+    assert "$2.50" in result.output       # no limit → show amount
+    assert "18% used" in result.output    # limit known → show percent
+    assert "weekly" in result.output
 
 
 def test_latest_window_snapshots_returns_most_recent(tmp_paths):

@@ -87,9 +87,39 @@ def status() -> None:
     click.echo(reports.status_line())
 
 
+def _fmt_reset(reset_at_str: str | None) -> str:
+    if not reset_at_str:
+        return ""
+    from datetime import UTC, datetime
+    try:
+        now = datetime.now(UTC)
+        reset_at = datetime.fromisoformat(reset_at_str)
+        secs = int((reset_at - now).total_seconds())
+        if secs <= 0:
+            return "reset overdue"
+        if secs < 86400:
+            h, rem = divmod(secs, 3600)
+            m = rem // 60
+            return f"resets in {h}h {m:02d}m" if h else f"resets in {m}m"
+        time_str = reset_at.strftime("%I:%M %p").lstrip("0")
+        return f"resets {reset_at.strftime('%a')} {time_str}"
+    except Exception:
+        return reset_at_str
+
+
+def _bar(pct: float | None, width: int = 40) -> str:
+    if not pct:
+        return f"[dim]{'░' * width}[/dim]"
+    filled = max(1, int(round(pct / 100 * width)))
+    color = "red" if pct >= 90 else "yellow" if pct >= 75 else "blue"
+    empty = width - filled
+    return f"[{color}]{'█' * filled}[/{color}]" + (f"[dim]{'░' * empty}[/dim]" if empty else "")
+
+
 @main.command()
-def usage() -> None:
-    """Print the most recently pulled usage-window data as JSON."""
+@click.option("--json", "as_json", is_flag=True, help="Output raw JSON (for scripts/cron).")
+def usage(as_json: bool) -> None:
+    """Show saved usage-window data (today and weekly). Use --json for scripts."""
     with db.session() as conn:
         rows = db.latest_window_snapshots(conn)
 
@@ -97,23 +127,47 @@ def usage() -> None:
         click.echo("No window data. Run 'aicosts pull' first.", err=True)
         raise SystemExit(1)
 
-    tools: dict = {}
-    for row in rows:
-        window_data: dict = {
-            "used": row["used"],
-            "limit": row["lim"],
-            "remaining": row["remaining"],
-            "percentUsed": row["percent_used"],
-            "unit": row["unit"],
-            "resetAt": row["reset_at"],
-            "windowStartAt": row["window_start_at"],
-            "pulledAt": row["pulled_at"],
-        }
-        if row["error"]:
-            window_data["error"] = row["error"]
-        tools.setdefault(row["provider"], {"windows": {}})["windows"][row["window"]] = window_data
+    if as_json:
+        tools: dict = {}
+        for row in rows:
+            window_data: dict = {
+                "used": row["used"],
+                "limit": row["lim"],
+                "remaining": row["remaining"],
+                "percentUsed": row["percent_used"],
+                "unit": row["unit"],
+                "resetAt": row["reset_at"],
+                "windowStartAt": row["window_start_at"],
+                "pulledAt": row["pulled_at"],
+            }
+            if row["error"]:
+                window_data["error"] = row["error"]
+            tools.setdefault(row["provider"], {"windows": {}})["windows"][row["window"]] = window_data
+        click.echo(json.dumps({"tools": tools}, indent=2))
+        return
 
-    click.echo(json.dumps({"tools": tools}, indent=2))
+    by_provider: dict = {}
+    for row in rows:
+        by_provider.setdefault(row["provider"], []).append(row)
+
+    for provider, windows in by_provider.items():
+        console.print(f"\n[bold]{provider}[/bold]")
+        for row in windows:
+            if row["error"]:
+                console.print(f"  [dim]{row['window']:<8}[/dim]  [red]{row['error']}[/red]")
+                continue
+            pct = row["percent_used"]
+            if pct is None and row["lim"] and row["lim"] > 0:
+                pct = row["used"] / row["lim"] * 100
+            used = row["used"]
+            unit = row["unit"]
+            amount = f"${used:,.2f}" if unit == "usd" else f"{used:,.0f} {unit}"
+            value_str = f"{pct:.0f}% used" if pct is not None else amount
+            console.print(
+                f"  [dim]{row['window']:<8}[/dim]  {_bar(pct)}"
+                f"  {value_str:<14}  [dim]{_fmt_reset(row['reset_at'])}[/dim]"
+            )
+    console.print()
 
 
 @main.command()
