@@ -19,17 +19,23 @@ def get_secret(name: str) -> str | None:
     env_value = os.environ.get(_env_var_name(name))
     if env_value:
         return env_value
-    return keyring.get_password(SERVICE, name)
+    try:
+        return keyring.get_password(SERVICE, name)
+    except keyring.errors.NoKeyringError:
+        return None
 
 
 def set_secret(name: str, value: str) -> None:
-    keyring.set_password(SERVICE, name, value)
+    try:
+        keyring.set_password(SERVICE, name, value)
+    except keyring.errors.NoKeyringError as e:
+        raise SystemExit(f"No keyring backend available: {e}\nUse environment variables instead (e.g. export {_env_var_name(name)}=<value>)") from e
 
 
 def delete_secret(name: str) -> None:
     try:
         keyring.delete_password(SERVICE, name)
-    except keyring.errors.PasswordDeleteError:
+    except (keyring.errors.PasswordDeleteError, keyring.errors.NoKeyringError):
         pass
 
 
