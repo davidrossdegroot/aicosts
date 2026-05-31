@@ -136,6 +136,15 @@ def pull(since=None, until=None) -> PullResult:
         headers={"Authorization": f"Bearer {token}", "anthropic-beta": BETA_HEADER},
         timeout=15.0,
     )
+    if resp.status_code in (401, 403):
+        # The OAuth token expired or was revoked. Surface the one-liner fix instead
+        # of an opaque HTTPStatusError traceback (issue #18). pull() catches
+        # SystemExit per-provider, so other providers still complete.
+        raise SystemExit(
+            f"Claude OAuth token rejected ({resp.status_code}). Your Claude Code "
+            "session has expired. Re-authenticate, then re-run `aicosts pull`:\n"
+            "    claude auth login --claudeai"
+        )
     resp.raise_for_status()
     data = resp.json()
 

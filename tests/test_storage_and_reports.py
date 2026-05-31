@@ -110,6 +110,25 @@ def test_summarize_by_project_uses_local_mapping(tmp_paths):
     assert "voice-calls" in labels
 
 
+def test_report_drops_zero_cost_rows(tmp_paths):
+    """Issue #10 — rows that round to $0.00 are hidden from the report table."""
+    today = date.today().isoformat()
+    with db.session() as conn:
+        db.upsert_usage_event(
+            conn, provider="openai", bucket_start=today, bucket_end=today,
+            granularity="1d", model="alpha-model", cost_usd=4.20,
+        )
+        db.upsert_usage_event(
+            conn, provider="openai", bucket_start=today, bucket_end=today,
+            granularity="1d", model="zero-model", cost_usd=0.0004,
+        )
+    runner = CliRunner()
+    result = runner.invoke(main, ["report", "--period", "today", "--by", "model"])
+    assert result.exit_code == 0
+    assert "alpha-model" in result.output
+    assert "zero-model" not in result.output
+
+
 def test_status_line(tmp_paths):
     today = date.today()
     _seed(today)
@@ -194,6 +213,56 @@ def test_projects_add_requires_at_least_one_id(tmp_paths):
     runner = CliRunner()
     result = runner.invoke(main, ["projects", "add", "my-agent"])
     assert result.exit_code != 0
+
+
+def test_gcp_excluded_from_default_pull(tmp_paths, monkeypatch):
+    """Issue #19 — default pull skips gcp and prints the billing-console hint."""
+    import aicosts.cli as cli_mod
+
+    pulled: list[str] = []
+
+    class _FakeMod:
+        def __init__(self, name):
+            self.name = name
+
+        def pull(self, since, until):
+            from aicosts.providers.base import PullResult
+            pulled.append(self.name)
+            return PullResult(provider=self.name)
+
+    monkeypatch.setattr(cli_mod, "import_module",
+                        lambda path: _FakeMod(path.rsplit(".", 1)[-1]))
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["pull"])
+    assert result.exit_code == 0
+    assert "gcp" not in pulled
+    assert "anthropic" in pulled
+    assert "subscriptions" in pulled
+    assert "console.cloud.google.com" in result.output
+    assert "--provider gcp" in result.output
+
+
+def test_gcp_pulled_on_demand(tmp_paths, monkeypatch):
+    """Issue #19 — gcp still pulls when explicitly requested."""
+    import aicosts.cli as cli_mod
+
+    pulled: list[str] = []
+
+    class _FakeMod:
+        def pull(self, since, until):
+            from aicosts.providers.base import PullResult
+            pulled.append("gcp")
+            return PullResult(provider="gcp")
+
+    monkeypatch.setattr(cli_mod, "import_module", lambda path: _FakeMod())
+
+    runner = CliRunner()
+    result = runner.invoke(main, ["pull", "--provider", "gcp"])
+    assert result.exit_code == 0
+    assert pulled == ["gcp"]
+    # No nag hint when the user explicitly asked for gcp.
+    assert "--provider gcp" not in result.output
 
 
 def test_usage_command_no_data(tmp_paths):

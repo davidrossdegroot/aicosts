@@ -49,6 +49,25 @@ class TestClaudeProvider:
         with pytest.raises(SystemExit, match="Claude OAuth token not found"):
             claude_mod.pull()
 
+    def test_401_raises_with_reauth_hint(self, tmp_paths, monkeypatch):
+        """Issue #18 — a 401 surfaces the `claude auth login` fix, not a traceback."""
+        import aicosts.providers.claude as claude_mod
+
+        creds = tmp_paths / ".credentials.json"
+        creds.write_text(json.dumps({"accessToken": "tok_stale"}))
+        monkeypatch.setattr(claude_mod, "CREDS_PATH", creds)
+        monkeypatch.setattr(claude_mod, "_token_from_keychain", lambda: None)
+
+        def fake_get(url, *, headers, timeout):
+            resp = MagicMock()
+            resp.status_code = 401
+            return resp
+
+        monkeypatch.setattr(httpx, "get", fake_get)
+
+        with pytest.raises(SystemExit, match="claude auth login"):
+            claude_mod.pull()
+
     def test_token_from_env_wins(self, tmp_paths, monkeypatch):
         import aicosts.providers.claude as claude_mod
         monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", "tok_env")

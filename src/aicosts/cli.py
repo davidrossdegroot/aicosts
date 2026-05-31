@@ -13,7 +13,11 @@ from aicosts import config, reports
 from aicosts.paths import db_path, projects_toml
 from aicosts.storage import db
 
-PROVIDERS = ["anthropic", "openai", "gcp", "twilio", "github", "claude", "codex"]
+# All providers that can be pulled explicitly via --provider.
+PROVIDERS = ["anthropic", "openai", "gcp", "twilio", "github", "claude", "codex", "subscriptions"]
+# Providers pulled when no --provider is given. gcp is excluded because querying its
+# BigQuery billing export is itself billable — pull it on demand (issue #19).
+DEFAULT_PROVIDERS = [p for p in PROVIDERS if p != "gcp"]
 
 console = Console()
 
@@ -32,7 +36,7 @@ def main() -> None:
               help="End date (inclusive). Default: today.")
 def pull(providers: tuple[str, ...], since: datetime | None, until: datetime | None) -> None:
     """Fetch usage/cost data from each provider into the local database."""
-    selected = list(providers) if providers else PROVIDERS
+    selected = list(providers) if providers else DEFAULT_PROVIDERS
     since_d = since.date() if since else date.today() - timedelta(days=30)
     until_d = until.date() if until else date.today()
 
@@ -55,6 +59,14 @@ def pull(providers: tuple[str, ...], since: datetime | None, until: datetime | N
             failures.append(name)
             console.print(f"[yellow]{name}[/yellow]: {e}")
 
+    if "gcp" not in selected:
+        from aicosts.providers import gcp
+        console.print(
+            f"[dim]gcp: skipped (querying GCP billing is itself billable). "
+            f"View costs: {gcp.console_url()}[/dim]"
+        )
+        console.print("[dim]     run `aicosts pull --provider gcp` to pull anyway.[/dim]")
+
     if failures:
         raise SystemExit(1)
 
@@ -72,18 +84,20 @@ def report(period: str, by: str) -> None:
         return
 
     total = sum(r.cost_usd for r in rows)
+    # Drop rows that round to $0.00 — they add noise without adding spend (issue #10).
+    visible = [r for r in rows if round(r.cost_usd, 2) != 0]
     table = Table(title=f"Spend — {period} by {by}")
     table.add_column(by.capitalize())
     table.add_column("USD", justify="right")
     table.add_column("%", justify="right")
-    for r in rows:
+    for r in visible:
         pct = (r.cost_usd / total * 100) if total else 0
         label = f"{r.label}{'*' if r.estimated else ''}"
         table.add_row(label, f"${r.cost_usd:,.2f}", f"{pct:5.1f}%")
     table.add_section()
     table.add_row("TOTAL", f"${total:,.2f}", "")
     console.print(table)
-    if any(r.estimated for r in rows):
+    if any(r.estimated for r in visible):
         console.print("[dim]* = includes estimated values from token counts (replaces when finalized cost data lands)[/dim]")
 
 
@@ -385,6 +399,86 @@ def projects_add(
 
     p.write_text(tomlkit.dumps(doc))
     console.print(f"[green]✓[/green] saved [bold]{label}[/bold] → {p}")
+
+
+@main.group(invoke_without_command=True)
+@click.pass_context
+def subscriptions(ctx: click.Context) -> None:
+    """Manage manually-tracked recurring subscriptions (e.g. ElevenLabs, GitHub plan)."""
+    if ctx.invoked_subcommand is None:
+        ctx.invoke(_subscriptions_list)
+
+
+@subscriptions.command("add")
+@click.argument("name")
+@click.option("--cost", "cost_usd", type=float, required=True, help="Charge per billing cycle, in USD.")
+@click.option("--frequency", type=click.Choice(["daily", "weekly", "monthly", "yearly"]),
+              default="monthly", show_default=True, help="How often the charge recurs.")
+@click.option("--start", "start", type=click.DateTime(formats=["%Y-%m-%d"]),
+              help="Billing anchor date (day-of-month/year the charge lands). Default: today.")
+@click.option("--end", "end", type=click.DateTime(formats=["%Y-%m-%d"]),
+              help="Optional last billing date (e.g. when a plan was cancelled).")
+@click.option("--note", help="Optional free-text note.")
+def subscriptions_add(name: str, cost_usd: float, frequency: str,
+                      start: datetime | None, end: datetime | None, note: str | None) -> None:
+    """Add or update a recurring subscription.
+
+    \b
+    Examples:
+      aicosts subscriptions add elevenlabs --cost 6 --frequency monthly
+      aicosts subscriptions add github-pro --cost 4 --frequency monthly --start 2026-01-01
+      aicosts subscriptions add some-annual --cost 120 --frequency yearly
+    """
+    start_d = (start.date() if start else date.today()).isoformat()
+    end_d = end.date().isoformat() if end else None
+    with db.session() as conn:
+        existed = db.upsert_subscription(
+            conn, name=name, cost_usd=cost_usd, frequency=frequency,
+            start_date=start_d, end_date=end_d, note=note,
+        )
+    verb = "updated" if existed else "added"
+    console.print(
+        f"[green]✓[/green] {verb} subscription [bold]{name}[/bold] — "
+        f"${cost_usd:,.2f} / {frequency} (from {start_d}"
+        + (f" to {end_d}" if end_d else "") + "). Run [bold]aicosts pull[/bold] to apply."
+    )
+
+
+@subscriptions.command("list")
+def _subscriptions_list() -> None:
+    """Show configured subscriptions."""
+    with db.session() as conn:
+        rows = db.list_subscriptions(conn)
+    if not rows:
+        console.print("[dim]No subscriptions configured. Add one: "
+                      "aicosts subscriptions add <name> --cost <usd> --frequency monthly[/dim]")
+        return
+    table = Table(title="Subscriptions")
+    table.add_column("Name")
+    table.add_column("USD", justify="right")
+    table.add_column("Frequency")
+    table.add_column("Start")
+    table.add_column("End")
+    table.add_column("Note")
+    for r in rows:
+        table.add_row(
+            r["name"], f"${r['cost_usd']:,.2f}", r["frequency"],
+            r["start_date"], r["end_date"] or "[dim]—[/dim]", r["note"] or "",
+        )
+    console.print(table)
+
+
+@subscriptions.command("remove")
+@click.argument("name")
+def subscriptions_remove(name: str) -> None:
+    """Remove a subscription by name. (Already-materialized cost events are kept.)"""
+    with db.session() as conn:
+        removed = db.delete_subscription(conn, name)
+    if removed:
+        console.print(f"[green]✓[/green] removed subscription [bold]{name}[/bold]")
+    else:
+        console.print(f"[yellow]no subscription named[/yellow] {name}")
+        sys.exit(1)
 
 
 @main.group()
