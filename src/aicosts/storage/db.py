@@ -55,6 +55,15 @@ CREATE TABLE IF NOT EXISTS budgets (
     UNIQUE(scope, scope_value, period)
 );
 
+CREATE TABLE IF NOT EXISTS subscriptions (
+    name TEXT PRIMARY KEY,
+    cost_usd REAL NOT NULL,
+    frequency TEXT NOT NULL,      -- daily | weekly | monthly | yearly
+    start_date TEXT NOT NULL,     -- ISO date; billing anchor (day-of-month/year)
+    end_date TEXT,                -- optional ISO date; NULL = ongoing
+    note TEXT
+);
+
 CREATE TABLE IF NOT EXISTS pull_log (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     provider TEXT NOT NULL,
@@ -198,6 +207,46 @@ def latest_window_snapshots(conn: sqlite3.Connection) -> list[sqlite3.Row]:
         ORDER BY ws.provider, ws.window
         """
     ).fetchall()
+
+
+def upsert_subscription(
+    conn: sqlite3.Connection,
+    *,
+    name: str,
+    cost_usd: float,
+    frequency: str,
+    start_date: str,
+    end_date: str | None = None,
+    note: str | None = None,
+) -> bool:
+    """Insert or update a subscription by name. Returns True if it already existed."""
+    existed = conn.execute(
+        "SELECT 1 FROM subscriptions WHERE name = ?", (name,)
+    ).fetchone() is not None
+    conn.execute(
+        """
+        INSERT INTO subscriptions (name, cost_usd, frequency, start_date, end_date, note)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON CONFLICT(name) DO UPDATE SET
+            cost_usd = excluded.cost_usd,
+            frequency = excluded.frequency,
+            start_date = excluded.start_date,
+            end_date = excluded.end_date,
+            note = excluded.note
+        """,
+        (name, cost_usd, frequency, start_date, end_date, note),
+    )
+    return existed
+
+
+def list_subscriptions(conn: sqlite3.Connection) -> list[sqlite3.Row]:
+    return conn.execute("SELECT * FROM subscriptions ORDER BY name").fetchall()
+
+
+def delete_subscription(conn: sqlite3.Connection, name: str) -> int:
+    """Delete a subscription by name. Returns the number of rows removed."""
+    cur = conn.execute("DELETE FROM subscriptions WHERE name = ?", (name,))
+    return cur.rowcount
 
 
 def log_pull(

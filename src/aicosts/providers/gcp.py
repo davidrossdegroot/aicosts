@@ -19,6 +19,18 @@ from aicosts.storage import db
 
 PROVIDER = "gcp"
 
+# Querying the BigQuery billing export is itself billable, so gcp is excluded from
+# the default `aicosts pull` and only runs on demand (`--provider gcp`). For a free
+# at-a-glance view we point at the billing console instead (issue #19).
+DEFAULT_CONSOLE_URL = (
+    "https://console.cloud.google.com/billing/01797E-2401BE-C9BFE6?project=saints-podcast"
+)
+
+
+def console_url() -> str:
+    """Billing-console URL to view GCP costs without running a billable query."""
+    return os.environ.get("GCP_BILLING_CONSOLE_URL", DEFAULT_CONSOLE_URL)
+
 
 def _client() -> tuple[bigquery.Client, str]:
     raw = require_secret(

@@ -43,6 +43,11 @@ aicosts keys set gcp-service-account-key --file /path/to/sa-key.json
 
 > First export can take up to 24h to appear after enabling.
 
+> **GCP is pulled on demand only.** Querying the BigQuery billing export is itself
+> billable, so `aicosts pull` skips GCP and prints a link to the billing console.
+> Pull it explicitly when you want a refresh: `aicosts pull --provider gcp`.
+> Override the console link with the `GCP_BILLING_CONSOLE_URL` env var.
+
 ### GitHub
 
 1. Create a **fine-grained PAT** at [github.com/settings/tokens](https://github.com/settings/tokens?type=beta) with **Plan → Read** permission.
@@ -65,6 +70,25 @@ aicosts keys set twilio-api-secret    # secret shown once at key creation
 ```
 
 > The Account SID and API Key SID are different. The URL path uses the Account SID (`AC...`); the API key pair (`SK...` + secret) is the auth credential.
+
+### Subscriptions (manual)
+
+Flat recurring charges the provider APIs don't report — an ElevenLabs, GitHub,
+Codex, or Claude plan — are tracked by hand. The full charge lands on each billing
+date (a $6/mo plan is one $6 event per month, not prorated) and shows up in reports
+under the subscription's name.
+
+```sh
+aicosts subscriptions add elevenlabs --cost 6 --frequency monthly
+aicosts subscriptions add github-pro --cost 4 --frequency monthly --start 2026-01-01
+aicosts subscriptions add some-annual --cost 120 --frequency yearly --end 2026-06-30
+aicosts subscriptions list
+aicosts subscriptions remove elevenlabs
+```
+
+`--frequency` is one of `daily | weekly | monthly | yearly`. `--start` (default:
+today) is the billing anchor — the day-of-month/year the charge recurs on. Billing
+dates are materialized into reports on the next `aicosts pull`.
 
 ### Project mapping (optional)
 

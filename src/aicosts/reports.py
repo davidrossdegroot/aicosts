@@ -61,15 +61,20 @@ def summarize(period: str, by: str) -> list[Row]:
         elif by == "key":
             key = f"{provider}/{r['api_key_id'] or r['workspace_id'] or '(none)'}"
         elif by in ("project", "project-model"):
-            label = project_label_for(
-                projects_doc,
-                provider=provider,
-                workspace_id=r["workspace_id"],
-                project_id=r["project_id"],
-                api_key_id=r["api_key_id"],
-            )
-            project_key = label or f"{provider}/(unmapped)"
-            key = f"{project_key}/{r['model']}" if by == "project-model" else project_key
+            if provider == "subscriptions":
+                # Subscriptions carry their own name (in `model`); show it directly
+                # rather than as an "(unmapped)" provider ID.
+                key = r["model"] or "subscription"
+            else:
+                label = project_label_for(
+                    projects_doc,
+                    provider=provider,
+                    workspace_id=r["workspace_id"],
+                    project_id=r["project_id"],
+                    api_key_id=r["api_key_id"],
+                )
+                project_key = label or f"{provider}/(unmapped)"
+                key = f"{project_key}/{r['model']}" if by == "project-model" else project_key
         else:
             raise ValueError(f"unknown grouping: {by}")
 
@@ -89,5 +94,9 @@ def status_line() -> str:
     total = sum(r.cost_usd for r in rows)
     if not rows:
         return "today: no usage data pulled"
-    parts = [f"{r.label} ${r.cost_usd:.2f}" + ("*" if r.estimated else "") for r in rows]
+    # Skip providers that round to $0.00 — keeps the one-liner readable (issue #10).
+    parts = [
+        f"{r.label} ${r.cost_usd:.2f}" + ("*" if r.estimated else "")
+        for r in rows if round(r.cost_usd, 2) != 0
+    ]
     return f"today: ${total:.2f} ({', '.join(parts)})"
